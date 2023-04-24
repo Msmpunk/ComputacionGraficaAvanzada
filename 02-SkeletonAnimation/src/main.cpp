@@ -33,6 +33,9 @@
 // Include loader Model class
 #include "Headers/Model.h"
 
+// Include Terrain
+#include "Headers/Terrain.h"
+
 #include "Headers/AnimationUtils.h"
 
 #define ARRAY_SIZE_IN_ELEMENTS(a) (sizeof(a)/sizeof(a[0]))
@@ -40,27 +43,23 @@
 int screenWidth;
 int screenHeight;
 
-GLFWwindow *window;
+GLFWwindow* window;
 
 Shader shader;
 //Shader con skybox
 Shader shaderSkybox;
 //Shader con multiples luces
 Shader shaderMulLighting;
+//Shader para el terreno
+Shader shaderTerrain;
 
 std::shared_ptr<FirstPersonCamera> camera(new FirstPersonCamera());
 
 Sphere skyboxSphere(20, 20);
-Box boxCesped;
-Box boxWalls;
-Box boxHighway;
-Box boxLandingPad;
+
 // Models complex instances
 Model modelRock;
 Model modelAircraft;
-Model modelEclipseChasis;
-Model modelEclipseRearWheels;
-Model modelEclipseFrontalWheels;
 Model modelHeliChasis;
 Model modelHeliHeli;
 Model modelLambo;
@@ -83,8 +82,11 @@ Model modelDartLegoRightLeg;
 // Model animate instance
 // Mayow
 Model mayowModelAnimate;
+// Terrain model instance
+Terrain terrain(-1, -1, 200, 8, "../Textures/heightmap2022.png");
 
 GLuint textureCespedID, textureWallID, textureWindowID, textureHighwayID, textureLandingPadID;
+GLuint textureTerrainBackgroundID, textureTerrainRID, textureTerrainGID, textureTerrainBID, textureTerrainBlendMapID;
 GLuint skyboxTextureID;
 
 GLenum types[6] = {
@@ -107,7 +109,6 @@ int lastMousePosX, offsetX = 0;
 int lastMousePosY, offsetY = 0;
 
 // Model matrix definitions
-glm::mat4 modelMatrixEclipse = glm::mat4(1.0f);
 glm::mat4 matrixModelRock = glm::mat4(1.0);
 glm::mat4 modelMatrixHeli = glm::mat4(1.0f);
 glm::mat4 modelMatrixLambo = glm::mat4(1.0);
@@ -150,11 +151,11 @@ double deltaTime;
 double currTime, lastTime;
 
 // Se definen todos las funciones.
-void reshapeCallback(GLFWwindow *Window, int widthRes, int heightRes);
-void keyCallback(GLFWwindow *window, int key, int scancode, int action,
-		int mode);
-void mouseCallback(GLFWwindow *window, double xpos, double ypos);
-void mouseButtonCallback(GLFWwindow *window, int button, int state, int mod);
+void reshapeCallback(GLFWwindow* Window, int widthRes, int heightRes);
+void keyCallback(GLFWwindow* window, int key, int scancode, int action,
+	int mode);
+void mouseCallback(GLFWwindow* window, double xpos, double ypos);
+void mouseButtonCallback(GLFWwindow* window, int button, int state, int mod);
 void init(int width, int height, std::string strTitle, bool bFullScreen);
 void destroy();
 bool processInput(bool continueApplication = true);
@@ -176,15 +177,15 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 
 	if (bFullScreen)
 		window = glfwCreateWindow(width, height, strTitle.c_str(),
-				glfwGetPrimaryMonitor(), nullptr);
+			glfwGetPrimaryMonitor(), nullptr);
 	else
 		window = glfwCreateWindow(width, height, strTitle.c_str(), nullptr,
-				nullptr);
+			nullptr);
 
 	if (window == nullptr) {
 		std::cerr
-				<< "Error to create GLFW window, you can try download the last version of your video card that support OpenGL 3.3+"
-				<< std::endl;
+			<< "Error to create GLFW window, you can try download the last version of your video card that support OpenGL 3.3+"
+			<< std::endl;
 		destroy();
 		exit(-1);
 	}
@@ -216,23 +217,12 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 	shader.initialize("../Shaders/colorShader.vs", "../Shaders/colorShader.fs");
 	shaderSkybox.initialize("../Shaders/skyBox.vs", "../Shaders/skyBox.fs");
 	shaderMulLighting.initialize("../Shaders/iluminacion_textura_animation.vs", "../Shaders/multipleLights.fs");
+	shaderTerrain.initialize("../Shaders/terrain.vs", "../Shaders/terrain.fs");
 
 	// Inicializacion de los objetos.
 	skyboxSphere.init();
 	skyboxSphere.setShader(&shaderSkybox);
 	skyboxSphere.setScale(glm::vec3(20.0f, 20.0f, 20.0f));
-
-	boxCesped.init();
-	boxCesped.setShader(&shaderMulLighting);
-
-	boxWalls.init();
-	boxWalls.setShader(&shaderMulLighting);
-
-	boxHighway.init();
-	boxHighway.setShader(&shaderMulLighting);
-
-	boxLandingPad.init();
-	boxLandingPad.setShader(&shaderMulLighting);
 
 	modelRock.loadModel("../models/rock/rock.obj");
 	modelRock.setShader(&shaderMulLighting);
@@ -240,13 +230,10 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 	modelAircraft.loadModel("../models/Aircraft_obj/E 45 Aircraft_obj.obj");
 	modelAircraft.setShader(&shaderMulLighting);
 
-	// Eclipse
-	modelEclipseChasis.loadModel("../models/Eclipse/2003eclipse_chasis.obj");
-	modelEclipseChasis.setShader(&shaderMulLighting);
-	modelEclipseFrontalWheels.loadModel("../models/Eclipse/2003eclipse_frontal_wheels.obj");
-	modelEclipseFrontalWheels.setShader(&shaderMulLighting);
-	modelEclipseRearWheels.loadModel("../models/Eclipse/2003eclipse_rear_wheels.obj");
-	modelEclipseRearWheels.setShader(&shaderMulLighting);
+	terrain.init();
+	terrain.setShader(&shaderTerrain);
+	terrain.setPosition(glm::vec3(100, 0, 100));
+
 	// Helicopter
 	modelHeliChasis.loadModel("../models/Helicopter/Mi_24_chasis.obj");
 	modelHeliChasis.setShader(&shaderMulLighting);
@@ -296,8 +283,8 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 
 	// Definimos el tamanio de la imagen
 	int imageWidth, imageHeight;
-	FIBITMAP *bitmap;
-	unsigned char *data;
+	FIBITMAP* bitmap;
+	unsigned char* data;
 
 	// Carga de texturas para el skybox
 	Texture skyboxTexture = Texture("");
@@ -312,13 +299,14 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 
 	for (int i = 0; i < ARRAY_SIZE_IN_ELEMENTS(types); i++) {
 		skyboxTexture = Texture(fileNames[i]);
-		FIBITMAP *bitmap = skyboxTexture.loadImage(true);
-		unsigned char *data = skyboxTexture.convertToData(bitmap, imageWidth,
-				imageHeight);
+		FIBITMAP* bitmap = skyboxTexture.loadImage(true);
+		unsigned char* data = skyboxTexture.convertToData(bitmap, imageWidth,
+			imageHeight);
 		if (data) {
 			glTexImage2D(types[i], 0, GL_RGBA, imageWidth, imageHeight, 0,
-			GL_BGRA, GL_UNSIGNED_BYTE, data);
-		} else
+				GL_BGRA, GL_UNSIGNED_BYTE, data);
+		}
+		else
 			std::cout << "Failed to load texture" << std::endl;
 		skyboxTexture.freeImage(bitmap);
 	}
@@ -329,7 +317,7 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 	bitmap = textureCesped.loadImage();
 	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
 	data = textureCesped.convertToData(bitmap, imageWidth,
-			imageHeight);
+		imageHeight);
 	// Creando la textura con id 1
 	glGenTextures(1, &textureCespedID);
 	// Enlazar esa textura a una tipo de textura de 2D.
@@ -347,10 +335,11 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
 		// a los datos
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
-		GL_BGRA, GL_UNSIGNED_BYTE, data);
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
 		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
 		glGenerateMipmap(GL_TEXTURE_2D);
-	} else
+	}
+	else
 		std::cout << "Failed to load texture" << std::endl;
 	// Libera la memoria de la textura
 	textureCesped.freeImage(bitmap);
@@ -361,7 +350,7 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 	bitmap = textureWall.loadImage();
 	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
 	data = textureWall.convertToData(bitmap, imageWidth,
-			imageHeight);
+		imageHeight);
 	// Creando la textura con id 1
 	glGenTextures(1, &textureWallID);
 	// Enlazar esa textura a una tipo de textura de 2D.
@@ -379,10 +368,11 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
 		// a los datos
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
-		GL_BGRA, GL_UNSIGNED_BYTE, data);
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
 		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
 		glGenerateMipmap(GL_TEXTURE_2D);
-	} else
+	}
+	else
 		std::cout << "Failed to load texture" << std::endl;
 	// Libera la memoria de la textura
 	textureWall.freeImage(bitmap);
@@ -393,7 +383,7 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 	bitmap = textureWindow.loadImage();
 	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
 	data = textureWindow.convertToData(bitmap, imageWidth,
-			imageHeight);
+		imageHeight);
 	// Creando la textura con id 1
 	glGenTextures(1, &textureWindowID);
 	// Enlazar esa textura a una tipo de textura de 2D.
@@ -411,10 +401,11 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
 		// a los datos
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
-		GL_BGRA, GL_UNSIGNED_BYTE, data);
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
 		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
 		glGenerateMipmap(GL_TEXTURE_2D);
-	} else
+	}
+	else
 		std::cout << "Failed to load texture" << std::endl;
 	// Libera la memoria de la textura
 	textureWindow.freeImage(bitmap);
@@ -425,7 +416,7 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 	bitmap = textureHighway.loadImage();
 	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
 	data = textureHighway.convertToData(bitmap, imageWidth,
-			imageHeight);
+		imageHeight);
 	// Creando la textura con id 1
 	glGenTextures(1, &textureHighwayID);
 	// Enlazar esa textura a una tipo de textura de 2D.
@@ -443,10 +434,11 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
 		// a los datos
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
-		GL_BGRA, GL_UNSIGNED_BYTE, data);
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
 		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
 		glGenerateMipmap(GL_TEXTURE_2D);
-	} else
+	}
+	else
 		std::cout << "Failed to load texture" << std::endl;
 	// Libera la memoria de la textura
 	textureHighway.freeImage(bitmap);
@@ -457,7 +449,7 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 	bitmap = textureLandingPad.loadImage();
 	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
 	data = textureLandingPad.convertToData(bitmap, imageWidth,
-			imageHeight);
+		imageHeight);
 	// Creando la textura con id 1
 	glGenTextures(1, &textureLandingPadID);
 	// Enlazar esa textura a una tipo de textura de 2D.
@@ -475,13 +467,179 @@ void init(int width, int height, std::string strTitle, bool bFullScreen) {
 		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
 		// a los datos
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
-		GL_BGRA, GL_UNSIGNED_BYTE, data);
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
 		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
 		glGenerateMipmap(GL_TEXTURE_2D);
-	} else
+	}
+	else
 		std::cout << "Failed to load texture" << std::endl;
 	// Libera la memoria de la textura
 	textureLandingPad.freeImage(bitmap);
+
+	// Definiendo la textura a utilizar
+	Texture textureTerrainBackground("../Textures/grassy2.png");
+	// Carga el mapa de bits (FIBITMAP es el tipo de dato de la libreria)
+	bitmap = textureTerrainBackground.loadImage();
+	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
+	data = textureTerrainBackground.convertToData(bitmap, imageWidth,
+		imageHeight);
+	// Creando la textura con id 1
+	glGenTextures(1, &textureTerrainBackgroundID);
+	// Enlazar esa textura a una tipo de textura de 2D.
+	glBindTexture(GL_TEXTURE_2D, textureTerrainBackgroundID);
+	// set the texture wrapping parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // set texture wrapping to GL_REPEAT (default wrapping method)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	// set texture filtering parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// Verifica si se pudo abrir la textura
+	if (data) {
+		// Transferis los datos de la imagen a memoria
+		// Tipo de textura, Mipmaps, Formato interno de openGL, ancho, alto, Mipmaps,
+		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
+		// a los datos
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
+		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
+	else
+		std::cout << "Failed to load texture" << std::endl;
+	// Libera la memoria de la textura
+	textureTerrainBackground.freeImage(bitmap);
+
+	// Definiendo la textura a utilizar
+	Texture textureTerrainR("../Textures/mud.png");
+	// Carga el mapa de bits (FIBITMAP es el tipo de dato de la libreria)
+	bitmap = textureTerrainR.loadImage();
+	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
+	data = textureTerrainR.convertToData(bitmap, imageWidth,
+		imageHeight);
+	// Creando la textura con id 1
+	glGenTextures(1, &textureTerrainRID);
+	// Enlazar esa textura a una tipo de textura de 2D.
+	glBindTexture(GL_TEXTURE_2D, textureTerrainRID);
+	// set the texture wrapping parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // set texture wrapping to GL_REPEAT (default wrapping method)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	// set texture filtering parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// Verifica si se pudo abrir la textura
+	if (data) {
+		// Transferis los datos de la imagen a memoria
+		// Tipo de textura, Mipmaps, Formato interno de openGL, ancho, alto, Mipmaps,
+		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
+		// a los datos
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
+		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
+	else
+		std::cout << "Failed to load texture" << std::endl;
+	// Libera la memoria de la textura
+	textureTerrainR.freeImage(bitmap);
+
+	// Definiendo la textura a utilizar
+	Texture textureTerrainG("../Textures/grassFlowers.png");
+	// Carga el mapa de bits (FIBITMAP es el tipo de dato de la libreria)
+	bitmap = textureTerrainG.loadImage();
+	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
+	data = textureTerrainG.convertToData(bitmap, imageWidth,
+		imageHeight);
+	// Creando la textura con id 1
+	glGenTextures(1, &textureTerrainGID);
+	// Enlazar esa textura a una tipo de textura de 2D.
+	glBindTexture(GL_TEXTURE_2D, textureTerrainGID);
+	// set the texture wrapping parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // set texture wrapping to GL_REPEAT (default wrapping method)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	// set texture filtering parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// Verifica si se pudo abrir la textura
+	if (data) {
+		// Transferis los datos de la imagen a memoria
+		// Tipo de textura, Mipmaps, Formato interno de openGL, ancho, alto, Mipmaps,
+		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
+		// a los datos
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
+		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
+	else
+		std::cout << "Failed to load texture" << std::endl;
+	// Libera la memoria de la textura
+	textureTerrainG.freeImage(bitmap);
+
+	// Definiendo la textura a utilizar
+	Texture textureTerrainB("../Textures/path.png");
+	// Carga el mapa de bits (FIBITMAP es el tipo de dato de la libreria)
+	bitmap = textureTerrainB.loadImage();
+	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
+	data = textureTerrainB.convertToData(bitmap, imageWidth,
+		imageHeight);
+	// Creando la textura con id 1
+	glGenTextures(1, &textureTerrainBID);
+	// Enlazar esa textura a una tipo de textura de 2D.
+	glBindTexture(GL_TEXTURE_2D, textureTerrainBID);
+	// set the texture wrapping parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // set texture wrapping to GL_REPEAT (default wrapping method)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	// set texture filtering parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// Verifica si se pudo abrir la textura
+	if (data) {
+		// Transferis los datos de la imagen a memoria
+		// Tipo de textura, Mipmaps, Formato interno de openGL, ancho, alto, Mipmaps,
+		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
+		// a los datos
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
+		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
+	else
+		std::cout << "Failed to load texture" << std::endl;
+	// Libera la memoria de la textura
+	textureTerrainB.freeImage(bitmap);
+
+	// Definiendo la textura a utilizar
+	Texture textureTerrainBlendMap("../Textures/blendMap.png");
+	// Carga el mapa de bits (FIBITMAP es el tipo de dato de la libreria)
+	bitmap = textureTerrainBlendMap.loadImage(true);
+	// Convertimos el mapa de bits en un arreglo unidimensional de tipo unsigned char
+	data = textureTerrainBlendMap.convertToData(bitmap, imageWidth,
+		imageHeight);
+	// Creando la textura con id 1
+	glGenTextures(1, &textureTerrainBlendMapID);
+	// Enlazar esa textura a una tipo de textura de 2D.
+	glBindTexture(GL_TEXTURE_2D, textureTerrainBlendMapID);
+	// set the texture wrapping parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // set texture wrapping to GL_REPEAT (default wrapping method)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	// set texture filtering parameters
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// Verifica si se pudo abrir la textura
+	if (data) {
+		// Transferis los datos de la imagen a memoria
+		// Tipo de textura, Mipmaps, Formato interno de openGL, ancho, alto, Mipmaps,
+		// Formato interno de la libreria de la imagen, el tipo de dato y al apuntador
+		// a los datos
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0,
+			GL_BGRA, GL_UNSIGNED_BYTE, data);
+		// Generan los niveles del mipmap (OpenGL es el ecargado de realizarlos)
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
+	else
+		std::cout << "Failed to load texture" << std::endl;
+	// Libera la memoria de la textura
+	textureTerrainBlendMap.freeImage(bitmap);
 }
 
 void destroy() {
@@ -494,13 +652,13 @@ void destroy() {
 	shader.destroy();
 	shaderMulLighting.destroy();
 	shaderSkybox.destroy();
+	shaderTerrain.destroy();
 
 	// Basic objects Delete
 	skyboxSphere.destroy();
-	boxCesped.destroy();
-	boxWalls.destroy();
-	boxHighway.destroy();
-	boxLandingPad.destroy();
+
+	// Terrains objects Delete
+	terrain.destroy();
 
 	// Custom objects Delete
 	modelAircraft.destroy();
@@ -513,9 +671,6 @@ void destroy() {
 	modelDartLegoRightArm.destroy();
 	modelDartLegoRightHand.destroy();
 	modelDartLegoRightLeg.destroy();
-	modelEclipseChasis.destroy();
-	modelEclipseFrontalWheels.destroy();
-	modelEclipseRearWheels.destroy();
 	modelHeliChasis.destroy();
 	modelHeliHeli.destroy();
 	modelLambo.destroy();
@@ -537,20 +692,25 @@ void destroy() {
 	glDeleteTextures(1, &textureWindowID);
 	glDeleteTextures(1, &textureHighwayID);
 	glDeleteTextures(1, &textureLandingPadID);
+	glDeleteTextures(1, &textureTerrainBackgroundID);
+	glDeleteTextures(1, &textureTerrainRID);
+	glDeleteTextures(1, &textureTerrainGID);
+	glDeleteTextures(1, &textureTerrainBID);
+	glDeleteTextures(1, &textureTerrainBlendMapID);
 
 	// Cube Maps Delete
 	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
 	glDeleteTextures(1, &skyboxTextureID);
 }
 
-void reshapeCallback(GLFWwindow *Window, int widthRes, int heightRes) {
+void reshapeCallback(GLFWwindow* Window, int widthRes, int heightRes) {
 	screenWidth = widthRes;
 	screenHeight = heightRes;
 	glViewport(0, 0, widthRes, heightRes);
 }
 
-void keyCallback(GLFWwindow *window, int key, int scancode, int action,
-		int mode) {
+void keyCallback(GLFWwindow* window, int key, int scancode, int action,
+	int mode) {
 	if (action == GLFW_PRESS) {
 		switch (key) {
 		case GLFW_KEY_ESCAPE:
@@ -560,14 +720,14 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
 	}
 }
 
-void mouseCallback(GLFWwindow *window, double xpos, double ypos) {
+void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
 	offsetX = xpos - lastMousePosX;
 	offsetY = ypos - lastMousePosY;
 	lastMousePosX = xpos;
 	lastMousePosY = ypos;
 }
 
-void mouseButtonCallback(GLFWwindow *window, int button, int state, int mod) {
+void mouseButtonCallback(GLFWwindow* window, int button, int state, int mod) {
 	if (state == GLFW_PRESS) {
 		switch (button) {
 		case GLFW_MOUSE_BUTTON_RIGHT:
@@ -603,85 +763,85 @@ bool processInput(bool continueApplication) {
 	offsetY = 0;
 
 	// Seleccionar modelo
-	if (enableCountSelected && glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS){
+	if (enableCountSelected && glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS) {
 		enableCountSelected = false;
 		modelSelected++;
-		if(modelSelected > 2)
+		if (modelSelected > 2)
 			modelSelected = 0;
-		if(modelSelected == 1)
+		if (modelSelected == 1)
 			fileName = "../animaciones/animation_dart_joints.txt";
 		if (modelSelected == 2)
 			fileName = "../animaciones/animation_dart.txt";
 		std::cout << "modelSelected:" << modelSelected << std::endl;
 	}
-	else if(glfwGetKey(window, GLFW_KEY_TAB) == GLFW_RELEASE)
+	else if (glfwGetKey(window, GLFW_KEY_TAB) == GLFW_RELEASE)
 		enableCountSelected = true;
 
 	// Guardar key frames
-	if(glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS
-			&& glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS){
+	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS
+		&& glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
 		record = true;
-		if(myfile.is_open())
+		if (myfile.is_open())
 			myfile.close();
 		myfile.open(fileName);
 	}
-	if(glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE
-			&& glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS){
+	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE
+		&& glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
 		record = false;
 		myfile.close();
-		if(modelSelected == 1)
+		if (modelSelected == 1)
 			keyFramesDartJoints = getKeyRotFrames(fileName);
 		if (modelSelected == 2)
 			keyFramesDart = getKeyFrames(fileName);
 	}
-	if(availableSave && glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS){
+	if (availableSave && glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) {
 		saveFrame = true;
 		availableSave = false;
-	}if(glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_RELEASE)
+	}if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_RELEASE)
 		availableSave = true;
 
 	// Dart Lego model movements
 	if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE &&
-			glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
 		rotDartHead += 0.02;
 	else if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS &&
-			glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
 		rotDartHead -= 0.02;
 	if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE &&
-			glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
 		rotDartLeftArm += 0.02;
 	else if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS &&
-			glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
 		rotDartLeftArm -= 0.02;
 	if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE &&
-			glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
 		rotDartRightArm += 0.02;
 	else if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS &&
-			glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
 		rotDartRightArm -= 0.02;
 	if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE &&
-			glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
 		rotDartLeftHand += 0.02;
 	else if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS &&
-			glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
 		rotDartLeftHand -= 0.02;
 	if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE &&
-			glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS)
 		rotDartRightHand += 0.02;
 	else if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS &&
-			glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS)
 		rotDartRightHand -= 0.02;
 	if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE &&
-			glfwGetKey(window, GLFW_KEY_6) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_6) == GLFW_PRESS)
 		rotDartLeftLeg += 0.02;
 	else if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS &&
-			glfwGetKey(window, GLFW_KEY_6) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_6) == GLFW_PRESS)
 		rotDartLeftLeg -= 0.02;
 	if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE &&
-			glfwGetKey(window, GLFW_KEY_7) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_7) == GLFW_PRESS)
 		rotDartRightLeg += 0.02;
 	else if (modelSelected == 1 && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS &&
-			glfwGetKey(window, GLFW_KEY_7) == GLFW_PRESS)
+		glfwGetKey(window, GLFW_KEY_7) == GLFW_PRESS)
 		rotDartRightLeg -= 0.02;
 	if (modelSelected == 2 && glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
 		modelMatrixDart = glm::rotate(modelMatrixDart, 0.02f, glm::vec3(0, 1, 0));
@@ -698,16 +858,6 @@ bool processInput(bool continueApplication) {
 
 void applicationLoop() {
 	bool psi = true;
-
-	modelMatrixEclipse = glm::translate(modelMatrixEclipse, glm::vec3(27.5, 0, 30.0));
-	modelMatrixEclipse = glm::rotate(modelMatrixEclipse, glm::radians(180.0f), glm::vec3(0, 1, 0));
-	int state = 0;
-	float advanceCount = 0.0;
-	float rotCount = 0.0;
-	float rotWheelsX = 0.0;
-	float rotWheelsY = 0.0;
-	int numberAdvance = 0;
-	int maxAdvance = 0.0;
 
 	matrixModelRock = glm::translate(matrixModelRock, glm::vec3(-3.0, 0.0, 2.0));
 
@@ -731,7 +881,7 @@ void applicationLoop() {
 
 	while (psi) {
 		currTime = TimeManager::Instance().GetTime();
-		if(currTime - lastTime < 0.016666667){
+		if (currTime - lastTime < 0.016666667) {
 			glfwPollEvents();
 			continue;
 		}
@@ -746,7 +896,7 @@ void applicationLoop() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glm::mat4 projection = glm::perspective(glm::radians(45.0f),
-				(float) screenWidth / (float) screenHeight, 0.01f, 100.0f);
+			(float)screenWidth / (float)screenHeight, 0.01f, 100.0f);
 		glm::mat4 view = camera->getViewMatrix();
 
 		// Settea la matriz de vista y projection al shader con solo color
@@ -755,14 +905,19 @@ void applicationLoop() {
 
 		// Settea la matriz de vista y projection al shader con skybox
 		shaderSkybox.setMatrix4("projection", 1, false,
-				glm::value_ptr(projection));
+			glm::value_ptr(projection));
 		shaderSkybox.setMatrix4("view", 1, false,
-				glm::value_ptr(glm::mat4(glm::mat3(view))));
+			glm::value_ptr(glm::mat4(glm::mat3(view))));
 		// Settea la matriz de vista y projection al shader con multiples luces
 		shaderMulLighting.setMatrix4("projection", 1, false,
-					glm::value_ptr(projection));
+			glm::value_ptr(projection));
 		shaderMulLighting.setMatrix4("view", 1, false,
-				glm::value_ptr(view));
+			glm::value_ptr(view));
+		// Settea la matriz de vista y projection al shader con multiples luces
+		shaderTerrain.setMatrix4("projection", 1, false,
+			glm::value_ptr(projection));
+		shaderTerrain.setMatrix4("view", 1, false,
+			glm::value_ptr(view));
 
 		/*******************************************
 		 * Propiedades Luz direccional
@@ -774,142 +929,70 @@ void applicationLoop() {
 		shaderMulLighting.setVectorFloat3("directionalLight.direction", glm::value_ptr(glm::vec3(-1.0, 0.0, 0.0)));
 
 		/*******************************************
+		 * Propiedades Luz direccional Terrain
+		 *******************************************/
+		shaderTerrain.setVectorFloat3("viewPos", glm::value_ptr(camera->getPosition()));
+		shaderTerrain.setVectorFloat3("directionalLight.light.ambient", glm::value_ptr(glm::vec3(0.3, 0.3, 0.3)));
+		shaderTerrain.setVectorFloat3("directionalLight.light.diffuse", glm::value_ptr(glm::vec3(0.7, 0.7, 0.7)));
+		shaderTerrain.setVectorFloat3("directionalLight.light.specular", glm::value_ptr(glm::vec3(0.9, 0.9, 0.9)));
+		shaderTerrain.setVectorFloat3("directionalLight.direction", glm::value_ptr(glm::vec3(-1.0, 0.0, 0.0)));
+
+		/*******************************************
 		 * Propiedades SpotLights
 		 *******************************************/
 		shaderMulLighting.setInt("spotLightCount", 0);
+		shaderTerrain.setInt("spotLightCount", 0);
 
 		/*******************************************
 		 * Propiedades PointLights
 		 *******************************************/
 		shaderMulLighting.setInt("pointLightCount", 0);
+		shaderTerrain.setInt("pointLightCount", 0);
 
 		/*******************************************
-		 * Cesped
+		 * Terrain Cesped
 		 *******************************************/
 		glm::mat4 modelCesped = glm::mat4(1.0);
 		modelCesped = glm::translate(modelCesped, glm::vec3(0.0, 0.0, 0.0));
 		modelCesped = glm::scale(modelCesped, glm::vec3(200.0, 0.001, 200.0));
-		// Se activa la textura del agua
+		// Se activa la textura del background
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, textureCespedID);
-		shaderMulLighting.setVectorFloat2("scaleUV", glm::value_ptr(glm::vec2(200, 200)));
-		boxCesped.render(modelCesped);
-		shaderMulLighting.setVectorFloat2("scaleUV", glm::value_ptr(glm::vec2(0, 0)));
-		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindTexture(GL_TEXTURE_2D, textureTerrainBackgroundID);
+		shaderTerrain.setInt("backgroundTexture", 0);
 
-		/*******************************************
-		 * Casa
-		 *******************************************/
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, textureWallID);
-		// Frontal wall
-		boxWalls.setScale(glm::vec3(10.0, 5.0, 0.05));
-		boxWalls.setPosition(glm::vec3(-10.0, 2.5, 0.0));
-		boxWalls.setOrientation(glm::vec3(0.0, 0.0, 0.0));
-		boxWalls.render();
-		// Left wall
-		boxWalls.setScale(glm::vec3(10.0, 5.0, 0.05));
-		boxWalls.setPosition(glm::vec3(-15.0, 2.5, -5.0));
-		boxWalls.setOrientation(glm::vec3(0.0, 90.0, 0.0));
-		boxWalls.render();
-		// Right walls
-		// First wall
-		boxWalls.setScale(glm::vec3(3.75, 5.0, 0.05));
-		boxWalls.setPosition(glm::vec3(-5.0, 2.5, -1.875));
-		boxWalls.setOrientation(glm::vec3(0.0, 90.0, 0.0));
-		boxWalls.render();
-		// Second wall
-		boxWalls.setScale(glm::vec3(3.75, 5.0, 0.05));
-		boxWalls.setPosition(glm::vec3(-5.0, 2.5, -8.125));
-		boxWalls.setOrientation(glm::vec3(0.0, 90.0, 0.0));
-		boxWalls.render();
-		// Third wall
-		boxWalls.setScale(glm::vec3(2.5, 1.25, 0.05));
-		boxWalls.setPosition(glm::vec3(-5.0, 4.375, -5.0));
-		boxWalls.setOrientation(glm::vec3(0.0, 90.0, 0.0));
-		boxWalls.render();
-		// Four wall
-		boxWalls.setScale(glm::vec3(2.5, 1.25, 0.05));
-		boxWalls.setPosition(glm::vec3(-5.0, 0.625, -5.0));
-		boxWalls.setOrientation(glm::vec3(0.0, 90.0, 0.0));
-		boxWalls.render();
-		// Back wall
-		boxWalls.setScale(glm::vec3(10.0, 5.0, 0.05));
-		boxWalls.setPosition(glm::vec3(-10.0, 2.5, -10.0));
-		boxWalls.setOrientation(glm::vec3(0.0, 0.0, 0.0));
-		boxWalls.render();
-		// Ceilling
-		boxWalls.setScale(glm::vec3(12.0, 12.0, 0.05));
-		boxWalls.setPosition(glm::vec3(-10.0, 5, -5.0));
-		boxWalls.setOrientation(glm::vec3(90.0, 0.0, 0.0));
-		boxWalls.render();
-		// Window
-		glBindTexture(GL_TEXTURE_2D, textureWindowID);
-		boxWalls.setScale(glm::vec3(2.5, 2.5, 0.05));
-		boxWalls.setPosition(glm::vec3(-5.0, 2.5, -5.0));
-		boxWalls.setOrientation(glm::vec3(0.0, 90.0, 0.0));
-		boxWalls.render();
-		// Highway 0
-		glBindTexture(GL_TEXTURE_2D, textureHighwayID);
-		boxHighway.setScale(glm::vec3(40.0, 0.05, 10.0));
-		boxHighway.setPosition(glm::vec3(0.0, 0.025, 10.0));
-		boxHighway.setOrientation(glm::vec3(0.0, 0.0, 0.0));
-		boxHighway.render();
-		// Highway 1
-		boxHighway.setScale(glm::vec3(80.0, 0.05, 10.0));
-		boxHighway.setPosition(glm::vec3(25.0, 0.025, 0.0));
-		boxHighway.setOrientation(glm::vec3(0.0, 90.0, 0.0));
-		shaderMulLighting.setVectorFloat2("scaleUV", glm::value_ptr(glm::vec2(2, 1)));
-		boxHighway.render();
-		shaderMulLighting.setVectorFloat2("scaleUV", glm::value_ptr(glm::vec2(0, 0)));
-		// Highway 2
-		boxHighway.setScale(glm::vec3(80.0, 0.05, 10.0));
-		boxHighway.setPosition(glm::vec3(-25.0, 0.025, 0.0));
-		boxHighway.setOrientation(glm::vec3(0.0, 90.0, 0.0));
-		shaderMulLighting.setVectorFloat2("scaleUV", glm::value_ptr(glm::vec2(2, 1)));
-		boxHighway.render();
-		shaderMulLighting.setVectorFloat2("scaleUV", glm::value_ptr(glm::vec2(0, 0)));
-		// Highway 3
-		boxHighway.setScale(glm::vec3(40.0, 0.05, 10.0));
-		boxHighway.setPosition(glm::vec3(0.0, 0.025, -35.0));
-		boxHighway.setOrientation(glm::vec3(0.0, 0.0, 0.0));
-		boxHighway.render();
-		// Landing pad
-		glBindTexture(GL_TEXTURE_2D, textureLandingPadID);
-		boxLandingPad.setScale(glm::vec3(10.0, 0.05, 10.0));
-		boxLandingPad.setPosition(glm::vec3(5.0, 0.025, -5.0));
-		boxLandingPad.setOrientation(glm::vec3(0.0, 0.0, 0.0));
-		boxLandingPad.render();
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE2, textureTerrainRID);
+		shaderTerrain.setInt("textureR", 2);
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE3, textureTerrainGID);
+		shaderTerrain.setInt("textureG", 3);
+
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE4, textureTerrainBID);
+		shaderTerrain.setInt("textureB", 4);
+
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE5, textureTerrainBlendMapID);
+		shaderTerrain.setInt("textureBlendMap", 5);
+
+		shaderTerrain.setVectorFloat2("scaleUV", glm::value_ptr(glm::vec2(40, 40)));
+		terrain.render();
+		shaderTerrain.setVectorFloat2("scaleUV", glm::value_ptr(glm::vec2(0, 0)));
 		glBindTexture(GL_TEXTURE_2D, 0);
 
 		/*******************************************
 		 * Custom objects obj
 		 *******************************************/
-		//Rock render
+		 //Rock render
+		matrixModelRock[3][1] = terrain.getHeightTerrain(matrixModelRock[3][0], matrixModelRock[3][2]);
 		modelRock.render(matrixModelRock);
 		// Forze to enable the unit texture to 0 always ----------------- IMPORTANT
 		glActiveTexture(GL_TEXTURE0);
 
 		// Render for the aircraft model
+		modelMatrixAircraft[3][1] = terrain.getHeightTerrain(modelMatrixAircraft[3][0], modelMatrixAircraft[3][2]) + 2.0;
 		modelAircraft.render(modelMatrixAircraft);
-
-		// Render for the eclipse car
-		glm::mat4 modelMatrixEclipseChasis = glm::mat4(modelMatrixEclipse);
-		modelMatrixEclipseChasis = glm::scale(modelMatrixEclipse, glm::vec3(0.5, 0.5, 0.5));
-		modelEclipseChasis.render(modelMatrixEclipseChasis);
-
-		glm::mat4 modelMatrixFrontalWheels = glm::mat4(modelMatrixEclipseChasis);
-		modelMatrixFrontalWheels = glm::translate(modelMatrixFrontalWheels, glm::vec3(0.0, 1.05813, 4.11483 ));
-		modelMatrixFrontalWheels = glm::rotate(modelMatrixFrontalWheels, rotWheelsY, glm::vec3(0, 1, 0));
-		modelMatrixFrontalWheels = glm::rotate(modelMatrixFrontalWheels, rotWheelsX, glm::vec3(1, 0, 0));
-		modelMatrixFrontalWheels = glm::translate(modelMatrixFrontalWheels, glm::vec3(0.0, -1.05813, -4.11483));
-		modelEclipseFrontalWheels.render(modelMatrixFrontalWheels);
-
-		glm::mat4 modelMatrixRearWheels = glm::mat4(modelMatrixEclipseChasis);
-		modelMatrixRearWheels = glm::translate(modelMatrixRearWheels, glm::vec3(0.0, 1.05813, -4.35157 ));
-		modelMatrixRearWheels = glm::rotate(modelMatrixRearWheels, rotWheelsX, glm::vec3(1, 0, 0));
-		modelMatrixRearWheels = glm::translate(modelMatrixRearWheels, glm::vec3(0.0, -1.05813, 4.35157));
-		modelEclipseRearWheels.render(modelMatrixRearWheels);
 
 		// Helicopter
 		glm::mat4 modelMatrixHeliChasis = glm::mat4(modelMatrixHeli);
@@ -924,6 +1007,7 @@ void applicationLoop() {
 		// Lambo car
 		glDisable(GL_CULL_FACE);
 		glm::mat4 modelMatrixLamboChasis = glm::mat4(modelMatrixLambo);
+		modelMatrixLamboChasis[3][1] = terrain.getHeightTerrain(modelMatrixLamboChasis[3][0], modelMatrixLamboChasis[3][2]);
 		modelMatrixLamboChasis = glm::scale(modelMatrixLamboChasis, glm::vec3(1.3, 1.3, 1.3));
 		modelLambo.render(modelMatrixLamboChasis);
 		glActiveTexture(GL_TEXTURE0);
@@ -943,6 +1027,7 @@ void applicationLoop() {
 		// Dart lego
 		// Se deshabilita el cull faces IMPORTANTE para la capa
 		glDisable(GL_CULL_FACE);
+		modelMatrixDart[3][1] = terrain.getHeightTerrain(modelMatrixDart[3][0], modelMatrixDart[3][2]);
 		glm::mat4 modelMatrixDartBody = glm::mat4(modelMatrixDart);
 		modelMatrixDartBody = glm::scale(modelMatrixDartBody, glm::vec3(0.5, 0.5, 0.5));
 		modelDartLegoBody.render(modelMatrixDartBody);
@@ -994,6 +1079,7 @@ void applicationLoop() {
 		/*******************************************
 		 * Custom Anim objects obj
 		 *******************************************/
+		modelMatrixMayow[3][1] = terrain.getHeightTerrain(modelMatrixMayow[3][0], modelMatrixMayow[3][2]);
 		glm::mat4 modelMatrixMayowBody = glm::mat4(modelMatrixMayow);
 		modelMatrixMayowBody = glm::scale(modelMatrixMayowBody, glm::vec3(0.021, 0.021, 0.021));
 		mayowModelAnimate.setAnimationIndex(0);
@@ -1016,7 +1102,7 @@ void applicationLoop() {
 		glDepthFunc(oldDepthFuncMode);
 
 		// Para salvar el frame
-		if(record && modelSelected == 1){
+		if (record && modelSelected == 1) {
 			matrixDartJoints.push_back(rotDartHead);
 			matrixDartJoints.push_back(rotDartLeftArm);
 			matrixDartJoints.push_back(rotDartLeftHand);
@@ -1029,9 +1115,9 @@ void applicationLoop() {
 				saveFrame = false;
 			}
 		}
-		else if(keyFramesDartJoints.size() > 0){
+		else if (keyFramesDartJoints.size() > 0) {
 			// Para reproducir el frame
-			interpolationDartJoints = numPasosDartJoints / (float) maxNumPasosDartJoints;
+			interpolationDartJoints = numPasosDartJoints / (float)maxNumPasosDartJoints;
 			numPasosDartJoints++;
 			if (interpolationDartJoints > 1.0) {
 				numPasosDartJoints = 0;
@@ -1078,61 +1164,17 @@ void applicationLoop() {
 		/*******************************************
 		 * State machines
 		 *******************************************/
-		// State machine for eclipse car
-		switch(state){
-		case 0:
-			if(numberAdvance == 0)
-				maxAdvance = 65.0;
-			else if(numberAdvance == 1)
-				maxAdvance = 49.0;
-			else if(numberAdvance == 2)
-				maxAdvance = 44.5;
-			else if(numberAdvance == 3)
-				maxAdvance = 49.0;
-			else if(numberAdvance == 4)
-				maxAdvance = 44.5;
-			state = 1;
-			break;
-		case 1:
-			modelMatrixEclipse = glm::translate(modelMatrixEclipse, glm::vec3(0.0, 0.0, 0.1));
-			advanceCount += 0.1;
-			rotWheelsX += 0.05;
-			rotWheelsY -= 0.02;
-			if(rotWheelsY < 0)
-				rotWheelsY = 0;
-			if(advanceCount > maxAdvance){
-				advanceCount = 0;
-				numberAdvance++;
-				state = 2;
-			}
-			break;
-		case 2:
-			modelMatrixEclipse = glm::translate(modelMatrixEclipse, glm::vec3(0.0, 0.0, 0.025));
-			modelMatrixEclipse = glm::rotate(modelMatrixEclipse, glm::radians(0.5f), glm::vec3(0, 1, 0));
-			rotCount += 0.5f;
-			rotWheelsX += 0.05;
-			rotWheelsY += 0.02;
-			if(rotWheelsY > 0.25)
-				rotWheelsY = 0.25;
-			if(rotCount >= 90.0){
-				rotCount = 0;
-				state = 0;
-				if(numberAdvance > 4)
-					numberAdvance = 1;
-			}
-			break;
-		}
 
-		// State machine for the lambo car
-		switch(stateDoor){
+		 // State machine for the lambo car
+		switch (stateDoor) {
 		case 0:
 			dorRotCount += 0.5;
-			if(dorRotCount > 75)
+			if (dorRotCount > 75)
 				stateDoor = 1;
 			break;
 		case 1:
 			dorRotCount -= 0.5;
-			if(dorRotCount < 0){
+			if (dorRotCount < 0) {
 				dorRotCount = 0.0;
 				stateDoor = 0;
 			}
@@ -1143,7 +1185,7 @@ void applicationLoop() {
 	}
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
 	init(800, 700, "Window GLFW", false);
 	applicationLoop();
 	destroy();
